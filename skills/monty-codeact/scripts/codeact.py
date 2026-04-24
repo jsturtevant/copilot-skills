@@ -406,6 +406,68 @@ def build_instructions(tools: list[dict[str, Any]]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Dependency installer
+# ---------------------------------------------------------------------------
+
+def _try_install(package: str, import_name: str):
+    """Prompt the user to install a missing package. Returns the module or None."""
+    import importlib
+
+    print(f"\n⚠  {package} is not installed.", file=sys.stderr)
+
+    # Try uv first
+    if shutil.which("uv"):
+        answer = input(f"Install {package} with uv? [Y/n] ").strip().lower()
+        if answer in ("", "y", "yes"):
+            r = subprocess.run(
+                ["uv", "pip", "install", package],
+                capture_output=True, text=True,
+            )
+            if r.returncode == 0:
+                print(f"✓ Installed {package}", file=sys.stderr)
+                return importlib.import_module(import_name)
+            print(f"uv install failed: {r.stderr.strip()}", file=sys.stderr)
+    else:
+        # Offer to install uv itself
+        answer = input("uv is not installed. Install uv? (recommended) [Y/n] ").strip().lower()
+        if answer in ("", "y", "yes"):
+            r = subprocess.run(
+                ["bash", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+                capture_output=True, text=True,
+            )
+            if r.returncode == 0:
+                # Refresh PATH and retry
+                uv_path = Path.home() / ".local" / "bin" / "uv"
+                if uv_path.exists():
+                    print("✓ Installed uv", file=sys.stderr)
+                    r2 = subprocess.run(
+                        [str(uv_path), "pip", "install", package],
+                        capture_output=True, text=True,
+                    )
+                    if r2.returncode == 0:
+                        print(f"✓ Installed {package}", file=sys.stderr)
+                        return importlib.import_module(import_name)
+            print("uv install failed. Trying pip...", file=sys.stderr)
+
+    # Fallback to pip
+    answer = input(f"Install {package} with pip? [Y/n] ").strip().lower()
+    if answer in ("", "y", "yes"):
+        r = subprocess.run(
+            [sys.executable, "-m", "pip", "install", package],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            print(f"✓ Installed {package}", file=sys.stderr)
+            return importlib.import_module(import_name)
+        print(f"pip install failed: {r.stderr.strip()}", file=sys.stderr)
+
+    print(f"\n✗ Could not install {package}. Install manually:", file=sys.stderr)
+    print(f"  uv pip install {package}", file=sys.stderr)
+    print(f"  pip install {package}", file=sys.stderr)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -456,17 +518,9 @@ def main() -> None:
     try:
         import pydantic_monty
     except ImportError:
-        print(json.dumps({
-            "stdout": "",
-            "stderr": (
-                "pydantic-monty is not installed.\n"
-                "Run this script with: uv run --with pydantic-monty python3 scripts/codeact.py ...\n"
-                "Or install manually: pip install pydantic-monty"
-            ),
-            "return_value": None,
-            "success": False,
-        }, indent=2))
-        sys.exit(1)
+        pydantic_monty = _try_install("pydantic-monty", "pydantic_monty")
+        if pydantic_monty is None:
+            sys.exit(1)
 
     global _WORKSPACE_ROOT
     if args.workspace:

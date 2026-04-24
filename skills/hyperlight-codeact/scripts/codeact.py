@@ -448,6 +448,66 @@ def build_instructions(tools: list[dict[str, Any]]) -> str:
     lines.append("```")
     return "\n".join(lines)
 
+# ---------------------------------------------------------------------------
+# Dependency installer
+# ---------------------------------------------------------------------------
+
+def _try_install(package: str, import_name: str):
+    """Prompt the user to install a missing package. Returns the module or None."""
+    import importlib
+
+    print(f"\n⚠  {package} is not installed.", file=sys.stderr)
+
+    # Try uv first
+    if shutil.which("uv"):
+        answer = input(f"Install {package} with uv? [Y/n] ").strip().lower()
+        if answer in ("", "y", "yes"):
+            r = subprocess.run(
+                ["uv", "pip", "install", package],
+                capture_output=True, text=True,
+            )
+            if r.returncode == 0:
+                print(f"✓ Installed {package}", file=sys.stderr)
+                return importlib.import_module(import_name)
+            print(f"uv install failed: {r.stderr.strip()}", file=sys.stderr)
+    else:
+        # Offer to install uv itself
+        answer = input("uv is not installed. Install uv? (recommended) [Y/n] ").strip().lower()
+        if answer in ("", "y", "yes"):
+            r = subprocess.run(
+                ["bash", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+                capture_output=True, text=True,
+            )
+            if r.returncode == 0:
+                uv_path = Path.home() / ".local" / "bin" / "uv"
+                if uv_path.exists():
+                    print("✓ Installed uv", file=sys.stderr)
+                    r2 = subprocess.run(
+                        [str(uv_path), "pip", "install", package],
+                        capture_output=True, text=True,
+                    )
+                    if r2.returncode == 0:
+                        print(f"✓ Installed {package}", file=sys.stderr)
+                        return importlib.import_module(import_name)
+            print("uv install failed. Trying pip...", file=sys.stderr)
+
+    # Fallback to pip
+    answer = input(f"Install {package} with pip? [Y/n] ").strip().lower()
+    if answer in ("", "y", "yes"):
+        r = subprocess.run(
+            [sys.executable, "-m", "pip", "install", package],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            print(f"✓ Installed {package}", file=sys.stderr)
+            return importlib.import_module(import_name)
+        print(f"pip install failed: {r.stderr.strip()}", file=sys.stderr)
+
+    print(f"\n✗ Could not install {package}. Install manually:", file=sys.stderr)
+    print(f"  uv pip install {package}", file=sys.stderr)
+    print(f"  pip install {package}", file=sys.stderr)
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Main
@@ -502,17 +562,10 @@ def main() -> None:
     try:
         from hyperlight_sandbox import Sandbox
     except ImportError:
-        print(json.dumps({
-            "stdout": "",
-            "stderr": (
-                "hyperlight-sandbox is not installed.\n"
-                "Run this script with: uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py ...\n"
-                "Or install manually: pip install 'hyperlight-sandbox[wasm,python_guest]'"
-            ),
-            "exit_code": 1,
-            "success": False,
-        }, indent=2))
-        sys.exit(1)
+        _mod = _try_install("hyperlight-sandbox[wasm,python_guest]", "hyperlight_sandbox")
+        if _mod is None:
+            sys.exit(1)
+        Sandbox = _mod.Sandbox
 
     global _WORKSPACE_ROOT
     if args.workspace:
