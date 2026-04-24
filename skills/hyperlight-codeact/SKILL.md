@@ -49,11 +49,11 @@ Sandboxed code can only reach the outside world through `call_tool()` bridges.
 ## Quick start
 
 ```bash
-# 1. Discover tools (matches Copilot CLI tool names)
+# 1. Discover tools (works without any packages installed)
 python3 scripts/codeact.py --discover
 
-# 2. Run code with auto-discovered tools
-python3 scripts/codeact.py --auto --workspace . --code '
+# 2. Run code (uv auto-installs hyperlight-sandbox into an ephemeral env)
+uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --auto --workspace . --code '
 content = call_tool("view", path="README.md")
 print(f"README has {len(content.splitlines())} lines")
 '
@@ -100,15 +100,20 @@ content = call_tool('view', path=call_tool('glob', pattern='config.json')[0])
 
 ### Step 3 -- Execute
 
+Use `uv run --with` to auto-install the dependency:
+
 ```bash
 # Auto-discover + workspace scoping (recommended)
-python3 scripts/codeact.py --auto --workspace . --code '...'
+uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --auto --workspace . --code '...'
 
 # With saved manifest
-python3 scripts/codeact.py --manifest tools.json --code-file script.py
+uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --manifest tools.json --code-file script.py
+```
 
-# Via stdin
-echo '{"tools": [...], "code": "..."}' | python3 scripts/codeact.py --stdin
+If `hyperlight-sandbox` is already installed, plain `python3` works too:
+
+```bash
+python3 scripts/codeact.py --auto --workspace . --code '...'
 ```
 
 Output is always JSON: `{"stdout": "...", "stderr": "...", "exit_code": 0, "success": true}`
@@ -130,4 +135,5 @@ Main executor. Key flags:
 ## Prerequisites
 
 - Python 3.10+
-- `hyperlight-sandbox[wasm,python_guest]` or build via `just python-build`
+- `uv` (recommended — auto-installs `hyperlight-sandbox` with no side effects)
+- Or: `pip install 'hyperlight-sandbox[wasm,python_guest]'`

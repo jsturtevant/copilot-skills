@@ -65,7 +65,11 @@ or need full Python (classes, third-party libs).
 ## Quick start
 
 ```bash
-python3 scripts/codeact.py --auto --workspace . --code '
+# Discovery works without any packages installed
+python3 scripts/codeact.py --discover
+
+# Execute code (uv auto-installs pydantic-monty into an ephemeral env)
+uv run --with pydantic-monty python3 scripts/codeact.py --auto --workspace . --code '
 files = glob(pattern="**/*.py", paths="src")
 print("Found " + str(len(files)) + " Python files")
 for f in files[:3]:
@@ -113,10 +117,17 @@ but it must be imported explicitly).
 
 ### Step 3 -- Execute
 
+Use `uv run --with pydantic-monty` to auto-install the dependency:
+
+```bash
+uv run --with pydantic-monty python3 scripts/codeact.py --auto --workspace . --code '...'
+uv run --with pydantic-monty python3 scripts/codeact.py --manifest tools.json --code-file script.py
+```
+
+If `pydantic-monty` is already installed, plain `python3` works too:
+
 ```bash
 python3 scripts/codeact.py --auto --workspace . --code '...'
-python3 scripts/codeact.py --manifest tools.json --code-file script.py
-echo '{"tools": [...], "code": "..."}' | python3 scripts/codeact.py --stdin
 ```
 
 Output is JSON:
@@ -140,4 +151,5 @@ Key flags:
 ## Prerequisites
 
 - Python 3.10+
-- `pip install pydantic-monty` (~4.5MB, no other dependencies)
+- `uv` (recommended — auto-installs `pydantic-monty` with no side effects)
+- Or: `pip install pydantic-monty` (~4.5MB, no other dependencies)

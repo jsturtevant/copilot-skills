@@ -499,7 +499,20 @@ def main() -> None:
         return
 
     # ---- execution ----
-    from hyperlight_sandbox import Sandbox
+    try:
+        from hyperlight_sandbox import Sandbox
+    except ImportError:
+        print(json.dumps({
+            "stdout": "",
+            "stderr": (
+                "hyperlight-sandbox is not installed.\n"
+                "Run this script with: uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py ...\n"
+                "Or install manually: pip install 'hyperlight-sandbox[wasm,python_guest]'"
+            ),
+            "exit_code": 1,
+            "success": False,
+        }, indent=2))
+        sys.exit(1)
 
     global _WORKSPACE_ROOT
     if args.workspace:

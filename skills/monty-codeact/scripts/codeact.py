@@ -453,7 +453,20 @@ def main() -> None:
         return
 
     # ---- execution ----
-    import pydantic_monty
+    try:
+        import pydantic_monty
+    except ImportError:
+        print(json.dumps({
+            "stdout": "",
+            "stderr": (
+                "pydantic-monty is not installed.\n"
+                "Run this script with: uv run --with pydantic-monty python3 scripts/codeact.py ...\n"
+                "Or install manually: pip install pydantic-monty"
+            ),
+            "return_value": None,
+            "success": False,
+        }, indent=2))
+        sys.exit(1)
 
     global _WORKSPACE_ROOT
     if args.workspace:
