@@ -509,6 +509,68 @@ def _try_install(package: str, import_name: str):
     return None
 
 
+# Minimum version that exports the Sandbox class and Wasm backend.
+_MIN_VERSION = "0.3.0"
+# Maximum Python version with pre-built Wasm backend wheels.
+_MAX_PYTHON = (3, 13)
+
+
+def _check_python_version() -> None:
+    """Warn if the current Python is too new for pre-built Wasm wheels."""
+    if sys.version_info[:2] > _MAX_PYTHON:
+        max_str = f"{_MAX_PYTHON[0]}.{_MAX_PYTHON[1]}"
+        cur_str = f"{sys.version_info.major}.{sys.version_info.minor}"
+        print(
+            f"\n⚠  Python {cur_str} detected. The hyperlight-sandbox Wasm backend "
+            f"only ships wheels for Python ≤{max_str}.\n"
+            f"   Re-run with:  uv run --python {max_str} "
+            f"--with 'hyperlight-sandbox[wasm,python_guest]>={_MIN_VERSION}' "
+            f"python3 scripts/codeact.py ...\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def _import_sandbox():
+    """Import the Sandbox class, giving actionable errors on failure."""
+    # 1. Check Python version first — avoids confusing resolution errors.
+    _check_python_version()
+
+    # 2. Try the import.
+    try:
+        from hyperlight_sandbox import Sandbox
+        return Sandbox
+    except ImportError:
+        pass
+
+    # 3. Check if hyperlight_sandbox is installed but too old (stub package).
+    try:
+        import hyperlight_sandbox as _hl
+        ver = getattr(_hl, "__version__", "0.0.0")
+        if not hasattr(_hl, "Sandbox"):
+            print(
+                f"\n✗ hyperlight-sandbox {ver} is installed but does not "
+                f"export Sandbox (likely a stub package).\n"
+                f"  Install version ≥{_MIN_VERSION}:\n"
+                f"    uv run --python {_MAX_PYTHON[0]}.{_MAX_PYTHON[1]} "
+                f"--with 'hyperlight-sandbox[wasm,python_guest]>={_MIN_VERSION}' "
+                f"python3 scripts/codeact.py ...\n",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    except ImportError:
+        pass
+
+    # 4. Not installed at all — try interactive install.
+    _mod = _try_install(
+        f"hyperlight-sandbox[wasm,python_guest]>={_MIN_VERSION}",
+        "hyperlight_sandbox",
+    )
+    if _mod is None:
+        sys.exit(1)
+    return _mod.Sandbox
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -559,13 +621,7 @@ def main() -> None:
         return
 
     # ---- execution ----
-    try:
-        from hyperlight_sandbox import Sandbox
-    except ImportError:
-        _mod = _try_install("hyperlight-sandbox[wasm,python_guest]", "hyperlight_sandbox")
-        if _mod is None:
-            sys.exit(1)
-        Sandbox = _mod.Sandbox
+    Sandbox = _import_sandbox()
 
     global _WORKSPACE_ROOT
     if args.workspace:
