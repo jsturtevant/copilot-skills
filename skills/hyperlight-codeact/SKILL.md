@@ -53,7 +53,10 @@ Sandboxed code can only reach the outside world through `call_tool()` bridges.
 python3 scripts/codeact.py --discover
 
 # 2. Run code (uv auto-installs hyperlight-sandbox into an ephemeral env)
-uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --auto --workspace . --code '
+#    NOTE: The Wasm backend requires Python ≤3.13. Use --python 3.13 if your
+#    system default is newer. Pin >=0.3.0 to avoid the empty stub package.
+uv run --python 3.13 --with 'hyperlight-sandbox[wasm,python_guest]>=0.3.0' \
+  python3 scripts/codeact.py --auto --workspace . --code '
 content = call_tool("view", path="README.md")
 print(f"README has {len(content.splitlines())} lines")
 '
@@ -100,14 +103,20 @@ content = call_tool('view', path=call_tool('glob', pattern='config.json')[0])
 
 ### Step 3 -- Execute
 
-Use `uv run --with` to auto-install the dependency:
+Use `uv run --with` to auto-install the dependency.
+
+**Important:** The Wasm backend only has wheels for Python ≤3.13. If your
+system Python is 3.14+, add `--python 3.13` to the `uv run` command. Always
+pin `>=0.3.0` — earlier versions are stub packages without the `Sandbox` class.
 
 ```bash
 # Auto-discover + workspace scoping (recommended)
-uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --auto --workspace . --code '...'
+uv run --python 3.13 --with 'hyperlight-sandbox[wasm,python_guest]>=0.3.0' \
+  python3 scripts/codeact.py --auto --workspace . --code '...'
 
 # With saved manifest
-uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --manifest tools.json --code-file script.py
+uv run --python 3.13 --with 'hyperlight-sandbox[wasm,python_guest]>=0.3.0' \
+  python3 scripts/codeact.py --manifest tools.json --code-file script.py
 ```
 
 If `hyperlight-sandbox` is already installed, plain `python3` works too:
@@ -134,6 +143,9 @@ Main executor. Key flags:
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.10–3.13 (the Wasm backend does **not** have wheels for 3.14+)
 - `uv` (recommended — auto-installs `hyperlight-sandbox` with no side effects)
-- Or: `pip install 'hyperlight-sandbox[wasm,python_guest]'`
+- Or: `pip install 'hyperlight-sandbox[wasm,python_guest]>=0.3.0'`
+
+> **Tip:** If your system Python is 3.14+, use `uv run --python 3.13 ...` to
+> automatically fetch and use a compatible interpreter.
