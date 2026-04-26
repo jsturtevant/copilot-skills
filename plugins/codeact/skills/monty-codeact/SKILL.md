@@ -68,7 +68,7 @@ Monty runs a subset of Python. **Will error on:**
 - **Set comprehensions** — build with list + `in` checks
 - **Third-party imports** — only stdlib subset
 - **Most stdlib** — only: json, re, datetime, sys, os.environ (no os.path, no os.walk)
-- **Brace expansion in glob** — `glob(pattern="src/{db,services}/**/*.py")` fails. Use two separate `glob()` calls.
+- **Brace expansion in glob** — `glob(pattern="src/{db,services}/**/*.py")` is supported.
 
 **Sandbox tool return types** (getting these wrong causes retries):
 - `glob(pattern=...)` → **list of strings** like `["src/app.py", "src/utils.py"]`

@@ -23,7 +23,42 @@ import sys
 import urllib.request
 import urllib.error
 from pathlib import Path
+
+# Only pass safe env vars to MCP server subprocesses — never leak secrets.
+_SAFE_ENV_KEYS = frozenset({
+    "PATH", "HOME", "LANG", "LC_ALL", "TERM", "USER",
+    "SHELL", "TMPDIR", "TMP", "TEMP", "XDG_RUNTIME_DIR",
+})
+
+
+def _safe_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Build an environment dict with only safe vars from os.environ."""
+    env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
+    if extra:
+        env.update(extra)
+    return env
 from typing import Any
+
+_MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10 MB cap for MCP responses
+
+
+def _validate_url(url: str) -> None:
+    """Reject non-HTTP URLs and localhost/private IPs to prevent SSRF."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported URL scheme: {parsed.scheme!r} (only http/https allowed)")
+    host = parsed.hostname or ""
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise ValueError(f"Blocked URL: localhost access not allowed ({host})")
+
+
+def _read_capped(resp, max_bytes: int = _MAX_RESPONSE_BYTES) -> str:
+    """Read HTTP response with a size cap to prevent OOM."""
+    data = resp.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        data = data[:max_bytes]
+    return data.decode("utf-8", errors="replace")
 
 
 def _load_mcp_config(config_path: str | None = None) -> dict[str, Any]:
@@ -60,6 +95,7 @@ def _call_http_server(url: str, tool_name: str, arguments: dict[str, Any],
             "arguments": arguments,
         },
     }
+    _validate_url(url)
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -72,7 +108,7 @@ def _call_http_server(url: str, tool_name: str, arguments: dict[str, Any],
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             content_type = resp.headers.get("Content-Type", "")
-            body = resp.read().decode("utf-8")
+            body = _read_capped(resp)
 
             # Direct JSON-RPC response
             if "application/json" in content_type:
@@ -114,9 +150,7 @@ def _call_stdio_server(command: str, args: list[str], tool_name: str,
         + json.dumps(call_msg) + "\n"
     )
 
-    run_env = dict(os.environ)
-    if env:
-        run_env.update(env)
+    run_env = _safe_env(env)
 
     try:
         proc = subprocess.run(
@@ -168,9 +202,7 @@ def _list_tools_stdio(command: str, args: list[str],
         + json.dumps(list_msg) + "\n"
     )
 
-    run_env = dict(os.environ)
-    if env:
-        run_env.update(env)
+    run_env = _safe_env(env)
 
     try:
         proc = subprocess.run(
@@ -196,6 +228,7 @@ def _list_tools_stdio(command: str, args: list[str],
 
 def _list_tools_http(url: str, timeout: int = 15) -> list[dict[str, Any]]:
     """List tools from an HTTP MCP server."""
+    _validate_url(url)
     payload = {
         "jsonrpc": "2.0", "id": 1,
         "method": "tools/list", "params": {},
@@ -210,7 +243,7 @@ def _list_tools_http(url: str, timeout: int = 15) -> list[dict[str, Any]]:
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8")
+            body = _read_capped(resp)
             content_type = resp.headers.get("Content-Type", "")
             if "text/event-stream" in content_type:
                 # Parse SSE for the result

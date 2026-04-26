@@ -216,9 +216,8 @@ def discover_mcp_servers() -> list[dict[str, Any]]:
             for name, scfg in cfg.get("servers",
                                        cfg.get("mcpServers", {})).items():
                 servers.append({"name": name, "source": str(p), "config": scfg})
-        except Exception:
-            pass
-    return servers
+        except Exception as exc:
+            print(f"⚠  failed to load MCP config {p}: {exc}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -325,10 +324,17 @@ _SQLITE_CONNECTIONS: dict[str, sqlite3.Connection] = {}
 def _check_workspace(p: Path) -> Path:
     resolved = p.expanduser().resolve()
     if _WORKSPACE_ROOT is not None:
-        if not str(resolved).startswith(str(_WORKSPACE_ROOT)):
+        # Use resolved path comparison with trailing sep to prevent prefix attacks
+        # e.g. /workspace_evil passing check for /workspace
+        ws = str(_WORKSPACE_ROOT)
+        rp = str(resolved)
+        if rp != ws and not rp.startswith(ws + os.sep):
             raise PermissionError(
                 f"Path {resolved} is outside workspace {_WORKSPACE_ROOT}")
     return resolved
+
+
+_MAX_VIEW_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 def _view(path="", view_range=None):
@@ -336,6 +342,8 @@ def _view(path="", view_range=None):
     if p.is_dir():
         entries = sorted(p.iterdir())
         return "\n".join(e.name + ("/" if e.is_dir() else "") for e in entries)
+    if p.stat().st_size > _MAX_VIEW_BYTES:
+        raise ValueError(f"File too large ({p.stat().st_size} bytes, max {_MAX_VIEW_BYTES})")
     text = p.read_text()
     if view_range and len(view_range) == 2:
         lines = text.splitlines(keepends=True)
@@ -370,7 +378,6 @@ def _glob(pattern="**/*", paths="."):
     base = _check_workspace(Path(paths))
     # Support brace expansion: {a,b} → run multiple globs and merge
     if "{" in pattern and "}" in pattern:
-        import itertools
         prefix = pattern[:pattern.index("{")]
         rest = pattern[pattern.index("{"):]
         brace_end = rest.index("}") + 1
@@ -422,13 +429,16 @@ def _grep(pattern="", paths=".", glob="", context_lines=0):
 
 
 def _web_fetch(url="", method="GET", headers=None, data="", max_length=20000):
-    cmd = ["curl", "-sS", "-L", "-X", method]
+    # Block non-HTTP schemes to prevent SSRF
+    if url and not (url.startswith("http://") or url.startswith("https://")):
+        raise ValueError(f"Blocked URL scheme (only http/https allowed): {url[:50]}")
+    cmd = ["curl", "-sS", "-L", "--max-time", "30", "--max-redirs", "5", "-X", method]
     for k, v in (headers or {}).items():
         cmd += ["-H", f"{k}: {v}"]
     if data:
         cmd += ["-d", data]
     cmd.append(url)
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=35)
     body = r.stdout
     # Strip HTML to plain text so the sandbox doesn't waste tokens parsing tags
     if "<html" in body[:500].lower() or "<!doctype" in body[:500].lower():
@@ -737,6 +747,14 @@ def main() -> None:
     global _WORKSPACE_ROOT
     if args.workspace:
         _WORKSPACE_ROOT = Path(args.workspace).resolve()
+
+    # Clear global state from any prior run
+    for conn in _SQLITE_CONNECTIONS.values():
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _SQLITE_CONNECTIONS.clear()
 
     config: dict[str, Any] = {}
     if args.stdin:
