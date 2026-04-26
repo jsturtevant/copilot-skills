@@ -1,0 +1,39 @@
+---
+applyTo: "**"
+---
+
+## CodeAct — sandboxed Python (backend: {{BACKEND}})
+
+Use codeact **instead of** chained tool calls when a task reads ≥8 files,
+cross-references file sets, or needs ≥5 sequential tool calls.
+
+### Invoke
+
+```bash
+{{CODEACT_DIR}}/scripts/codeact --auto --workspace . --code '<python>'
+```
+
+### Critical rules
+
+1. **One bash call, one program.** Write a single Python program that globs,
+   reads, analyzes, and prints results. Do NOT scout with view/glob before
+   invoking codeact. Do NOT retry with extra tool calls if the first run
+   has a minor issue — fix the program instead.
+2. **Return types** — getting these wrong causes retries:
+   - `glob` → **list of strings** like `["src/app.py", ...]`
+   - `view` → **string** (file content)
+   - `mcp_call` → **string**
+   - `bash` → **dict** with stdout/stderr/returncode
+3. **No `os.path`, no `os.walk`** — use `glob` to find files, `view` to read them.
+4. **Wrap file reads in try/except.** Print partial results as you go.
+5. **Use double quotes in Python code** to avoid shell quoting conflicts with
+   `--code '...'`. Write `"string"` not `'string'` inside codeact programs.
+6. Skip codeact for ≤5 files or single grep→view→done workflows.
+
+{{SYNTAX}}
+
+{{BACKEND_LIMITATIONS}}
+
+### Sandbox tools: {{TOOL_LIST}}
+
+{{TOOL_REFERENCE}}

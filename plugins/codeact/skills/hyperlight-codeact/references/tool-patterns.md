@@ -35,6 +35,15 @@ Sandbox tools mirror Copilot CLI built-in tools:
 | `web_fetch` | `curl` | Fetch URLs |
 | `github_api` | `gh` CLI | GitHub REST API |
 
+## Return types (critical — wrong assumptions cause retries)
+
+- `call_tool('glob', ...)` → `list[str]` e.g. `["src/app.py", "src/utils.py"]`
+- `call_tool('view', ...)` → `str` (full file content)
+- `call_tool('bash', ...)` → `dict` with `stdout`, `stderr`, `returncode`
+- `call_tool('mcp_call', ...)` → `str`
+- `call_tool('web_fetch', ...)` → `str` (HTML auto-stripped to text, capped at 20K)
+- Brace expansion works: `call_tool('glob', pattern='src/{db,services}/**/*.py')`
+
 ## Chaining Patterns
 
 ### Sequential: search -> read -> analyze

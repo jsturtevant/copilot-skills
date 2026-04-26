@@ -1,0 +1,18 @@
+{
+  "name": "copilot-skills",
+  "owner": { "name": "jsturtevant" },
+  "metadata": {
+    "description": "Personal marketplace — codeact and friends",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "codeact",
+      "description": "Collapse multi-step tool chains into sandboxed Python runs.",
+      "version": "0.1.0",
+      "source": "./plugins/codeact",
+      "license": "MIT",
+      "keywords": ["codeact", "codemode", "sandbox", "mcp", "tools"]
+    }
+  ]
+}

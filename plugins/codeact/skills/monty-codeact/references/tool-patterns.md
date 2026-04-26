@@ -50,22 +50,67 @@ files = call_tool("glob", pattern="**/*.py")
 ## Monty-specific notes
 
 - Use `chr(10)` for newline character (backslash escapes in some contexts differ)
-- Use string concatenation `+` or f-strings: `f"count: {n}"`
+- Use string concatenation `+` or simple f-strings: `f"count: {n}"`
+- **No f-string format specs** — `f"{x:<10}"`, `f"{x:>5}"`, `f"{x:.2f}"` all error
+- **No `str.format()`** — `"{:<10}".format(x)` errors
+- **No `os.path` or `os.walk`** — use `glob()` to find files, `view()` to read them
+- For tabular output, use manual padding:
+  ```python
+  def pad(s, w):
+      s = str(s)
+      return s + " " * max(0, w - len(s))
+  ```
 - No classes, no match statements, no third-party imports
-- Supported stdlib: `json`, `re`, `datetime`, `sys`, `os`, `typing`, `asyncio`
+- Supported stdlib: `json`, `re`, `datetime`, `sys`, `os.environ` (no os.path), `typing`, `asyncio`
 - Sub-microsecond startup vs ~680ms for Hyperlight
+
+### Return types (critical — wrong assumptions cause retries)
+- `glob(pattern=...)` → `list[str]` e.g. `["src/app.py", "src/utils.py"]`
+- `view(path=...)` → `str` (full file content)
+- `bash(command=...)` → `dict` with `stdout`, `stderr`, `returncode`
+- `mcp_call(server=..., tool=..., ...)` → `str`
 
 ## Chaining Patterns
 
 ### Sequential: search -> read -> analyze
 
 ```python
+# Do everything in one program — no scouting needed
 for f in glob(pattern="**/*.py", paths="src"):
-    content = view(path=f)
+    try:
+        content = view(path=f)
+    except Exception as e:
+        print(f + ": ERROR - " + str(e))
+        continue
     lines = content.split(chr(10))
     todos = [l for l in lines if "TODO" in l]
     if todos:
-        print(f + ": " + str(len(todos)) + " TODOs")
+        clean = f.replace("./", "")
+        print(clean + ": " + str(len(todos)) + " TODOs")
+```
+
+### Cross-file import analysis
+
+```python
+import re
+files = glob(pattern="src/**/*.py")
+deps = {}
+for f in files:
+    clean = f.replace("./", "")
+    try:
+        content = view(path=f)
+    except Exception:
+        continue
+    imports = []
+    for line in content.split(chr(10)):
+        if line.startswith("from src.") or line.startswith("import src."):
+            m = re.match(r"(?:from|import)\s+(src\.\S+)", line)
+            if m:
+                imports.append(m.group(1))
+    if imports:
+        deps[clean] = imports
+for mod, imps in deps.items():
+    print(mod + " -> " + ", ".join(imps))
 ```
 
 ### Fan-out / fan-in
@@ -105,6 +150,26 @@ for f in files:
         print(f + ": OK")
     except Exception as e:
         print(f + ": ERROR - " + str(e))
+```
+
+### MCP server calls
+
+When `.mcp.json` is present, `mcp_call` bridges to MCP servers:
+
+```python
+# Search Microsoft docs
+result = mcp_call(server="microsoft-docs", tool="microsoft_docs_search",
+                  query="Azure Functions")
+print(result[:200])
+
+# Chain: search docs then fetch a page
+import json as _json
+hits = _json.loads(mcp_call(server="microsoft-docs",
+                           tool="microsoft_docs_search",
+                           query="Azure Functions"))
+url = hits["results"][0]["url"]
+page = mcp_call(server="microsoft-docs", tool="microsoft_docs_fetch", url=url)
+print(page[:500])
 ```
 
 ## Custom Tool Definitions

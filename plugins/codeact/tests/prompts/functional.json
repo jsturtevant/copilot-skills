@@ -1,0 +1,64 @@
+[
+  {
+    "id": "multi-file-search",
+    "prompt": "Find all TODO comments across all Python files in src/ and list each with its file and line number. Use codeact to do this in a single sandbox run.",
+    "assertions": {
+      "codeact_invoked": true,
+      "output_contains": ["TODO", "app.py"],
+      "min_matches": 3
+    }
+  },
+  {
+    "id": "batch-count",
+    "prompt": "Count lines of code in each Python file under src/ and show the top 3 largest files. Use codeact to do this in one pass.",
+    "assertions": {
+      "codeact_invoked": true,
+      "output_contains": ["lines", "app.py"]
+    }
+  },
+  {
+    "id": "json-validate",
+    "prompt": "Check all JSON files in config/ for valid syntax. Report which are valid and which have errors. Use codeact.",
+    "assertions": {
+      "codeact_invoked": true,
+      "output_contains": ["broken.json"]
+    }
+  },
+  {
+    "id": "single-file-read",
+    "_comment": "Negative test: trivial single-file read should NOT trigger codeact. Codeact is for multi-step chains; one-shot reads should go through the agent's built-in `view` tool.",
+    "prompt": "Read README.md and tell me what it says in one sentence.",
+    "assertions": {
+      "codeact_invoked": false,
+      "output_contains": ["README"]
+    }
+  },
+  {
+    "id": "custom-tool-shout",
+    "prompt": "Use codeact to call the `shout` tool with text=\"hello world\" and print the result.",
+    "files": [
+      {
+        "path": ".codeact-config/tools/shout.py",
+        "from": "user-tools/shout.py"
+      }
+    ],
+    "assertions": {
+      "codeact_invoked": true,
+      "output_contains": ["HELLO WORLD"]
+    }
+  },
+  {
+    "id": "tool-config-disable",
+    "prompt": "Use codeact to attempt to invoke the `bash` tool (e.g. run `echo hi`). The codeact config in this workspace disables the bash tool, so the call should fail. Wrap the call in try/except. On any exception, print exactly: TOOL_DISABLED_OK followed by the exception message. On success, print: TOOL_STILL_ENABLED followed by the result. Use whichever syntax the active codeact backend exposes.",
+    "files": [
+      {
+        "path": ".codeact-config/config.json",
+        "content": "{\"disabled\": [\"bash\"]}"
+      }
+    ],
+    "assertions": {
+      "codeact_invoked": true,
+      "output_contains": ["TOOL_DISABLED_OK"]
+    }
+  }
+]

@@ -1,0 +1,104 @@
+[
+  {
+    "id": "config-and-code-audit",
+    "prompt": "Read all JSON files in config/ and all Python files in src/. For each JSON config key (at any nesting level), check if it appears as a string literal anywhere in the Python source code. List config keys that are never referenced.",
+    "description": "Read 5 JSON configs + 20+ Python source files + cross-reference keys \u2014 forces 25+ sequential view calls in baseline",
+    "min_token_reduction": 0
+  },
+  {
+    "id": "todo-in-context",
+    "prompt": "Find every TODO comment in every Python file across the entire project (src/, tests/, scripts/). For each TODO, show the file path, line number, the full TODO comment text, and the name of the function or class it appears in (or 'module-level' if not inside a function). Group results by directory.",
+    "description": "Glob all dirs + view each file + parse function context for each TODO \u2014 baseline needs sequential view+grep per file to get function context",
+    "min_token_reduction": 0
+  },
+  {
+    "id": "import-dependency-map",
+    "prompt": "Read every Python file under src/ and build an import dependency map: for each file, list which other src/ files it imports from. Then identify any circular import chains and any src/ modules that nothing else imports (dead modules). Show the full dependency map and findings.",
+    "description": "Read 20+ src files + parse imports + cross-reference all pairs + detect cycles \u2014 baseline needs sequential reads then cross-referencing",
+    "min_token_reduction": 0
+  },
+  {
+    "id": "handler-service-mismatch",
+    "prompt": "Read all files in src/handlers/ and src/services/. For each handler function, check if it calls the corresponding service function (e.g. handle_get_users should call list_users or get_user from user_service). List any handler functions that don't reference their expected service, and any service functions that no handler calls.",
+    "description": "Read handlers + services + cross-reference function calls \u2014 only ~13 files total so codeact overhead is proportionally higher",
+    "min_token_reduction": 0
+  },
+  {
+    "id": "test-coverage-gap",
+    "prompt": "Read all Python files in src/ and all test files in tests/. For each public function defined in src/ (not starting with underscore), check if there's a corresponding test function in tests/ that imports or references it. List all untested public functions with their file and line number.",
+    "description": "Read 20+ src files + 5 test files + cross-reference function names \u2014 heavy cross-file analysis baseline does sequentially"
+  },
+  {
+    "id": "env-var-inventory",
+    "prompt": "Read every Python file in src/, tests/, and scripts/. Find every os.environ.get or os.getenv call and extract the variable name. Then read all JSON files in config/. Print two lists: env vars not in any config file, and config keys not referenced by os.environ. One item per line, no extra commentary.",
+    "description": "Scan 30+ Python files for env var refs + 5 JSON configs, then cross-reference both directions. Baseline must read every file then compare sets.",
+    "min_token_reduction": 0
+  },
+  {
+    "id": "docstring-coverage",
+    "prompt": "Read every Python file in src/. For each file, find all function and class definitions (lines starting with 'def ' or 'class '). Check if each has a docstring (triple-quoted string on the next non-empty line). List all functions and classes that are missing docstrings, grouped by file, with line numbers.",
+    "description": "Read 20+ src/ files + parse function defs + check next-line content. Per-function analysis across many files.",
+    "min_token_reduction": 40
+  },
+  {
+    "id": "middleware-chain-audit",
+    "prompt": "Read all files in src/middleware/, src/handlers/, and src/services/. For each middleware function, check which handlers or services import or reference it. List each middleware with its consumers. Then identify any middleware that nothing imports (dead middleware) and any handler that doesn't use any middleware.",
+    "description": "Read 3 directories (~20 files), extract imports and references, cross-reference middleware-to-consumer. Three-way cross-reference.",
+    "min_token_reduction": 0
+  },
+  {
+    "id": "full-project-function-index",
+    "prompt": "Read every Python file in the entire project. Build a complete index of all function definitions: for each function show the file path, line number, function name, number of parameters, and whether it has a return statement. Sort by file path then line number. Show the total count at the end.",
+    "description": "Read all 30+ Python files, parse every function def, count params, check for return. Heavy per-file parsing across entire project.",
+    "min_token_reduction": 40
+  },
+  {
+    "id": "config-audit-mcp-bloated",
+    "prompt": "Read all JSON files in config/ and all Python files in src/. For each JSON config key (at any nesting level), check if it appears as a string literal anywhere in the Python source code. List config keys that are never referenced.",
+    "description": "Same cross-reference task as config-and-code-audit but with 4 MCP servers loaded. Context bloat from MCP tool catalogs makes each turn expensive \u2014 codeact saves by needing fewer turns.",
+    "files": [
+      {
+        "path": ".mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"microsoft-docs\": {\n      \"type\": \"http\",\n      \"url\": \"https://learn.microsoft.com/api/mcp\"\n    },\n    \"playwright\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@playwright/mcp@latest\"]\n    },\n    \"markitdown\": {\n      \"command\": \"uvx\",\n      \"args\": [\"markitdown-mcp\"]\n    },\n    \"azure-mcp\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@azure/mcp@latest\", \"server\", \"start\"]\n    }\n  }\n}\n"
+      }
+    ]
+  },
+  {
+    "id": "mcp-docs-cross-ref",
+    "prompt": "Search Microsoft docs for \"database connection pooling best practices\" using the microsoft-docs MCP server. Then read all Python files in src/db/ and src/services/. Cross-reference: for each best practice mentioned in the docs results, check if our code follows it or violates it. Show which files are relevant and what they do right or wrong.",
+    "description": "MCP search + 30+ file scan + cross-reference. High file count makes codeact valuable; MCP data processed inside sandbox.",
+    "disable_mcp_in_codeact": true,
+    "min_token_reduction": 0,
+    "files": [
+      {
+        "path": ".mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"microsoft-docs\": {\n      \"type\": \"http\",\n      \"url\": \"https://learn.microsoft.com/api/mcp\"\n    }\n  }\n}\n"
+      }
+    ]
+  },
+  {
+    "id": "test-coverage-mcp-bloated",
+    "prompt": "Read all Python files in src/ and all test files in tests/. For each public function defined in src/ (not starting with underscore), check if there's a corresponding test function in tests/ that imports or references it. List all untested public functions with their file and line number.",
+    "description": "Same cross-reference task as test-coverage-gap but with 4 MCP servers loaded. Tests that MCP context bloat amplifies codeact savings on turn-heavy baseline workloads.",
+    "files": [
+      {
+        "path": ".mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"microsoft-docs\": {\n      \"type\": \"http\",\n      \"url\": \"https://learn.microsoft.com/api/mcp\"\n    },\n    \"playwright\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@playwright/mcp@latest\"]\n    },\n    \"markitdown\": {\n      \"command\": \"uvx\",\n      \"args\": [\"markitdown-mcp\"]\n    },\n    \"azure-mcp\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@azure/mcp@latest\", \"server\", \"start\"]\n    }\n  }\n}\n"
+      }
+    ],
+    "min_token_reduction": 40
+  },
+  {
+    "id": "mcp-docs-cross-ref-bloated",
+    "prompt": "Search Microsoft docs for \"database connection pooling best practices\" using the microsoft-docs MCP server. Then read all Python files in src/db/ and src/services/. Cross-reference: for each best practice mentioned in the docs results, check if our code follows it or violates it. Show which files are relevant and what they do right or wrong.",
+    "description": "Same cross-reference task as mcp-docs-cross-ref but with 4 MCP servers loaded. Context bloat from all 4 MCP tool catalogs makes each turn much more expensive \u2014 codeact saves by needing fewer turns.",
+    "disable_mcp_in_codeact": true,
+    "min_token_reduction": 0,
+    "files": [
+      {
+        "path": ".mcp.json",
+        "content": "{\"mcpServers\": {\"microsoft-docs\": {\"type\": \"http\", \"url\": \"https://learn.microsoft.com/api/mcp\"}, \"playwright\": {\"command\": \"npx\", \"args\": [\"-y\", \"@playwright/mcp@latest\"]}, \"markitdown\": {\"command\": \"uvx\", \"args\": [\"markitdown-mcp\"]}, \"azure-mcp\": {\"command\": \"npx\", \"args\": [\"-y\", \"@azure/mcp@latest\", \"server\", \"start\"]}}}"
+      }
+    ]
+  }
+]

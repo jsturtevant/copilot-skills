@@ -1,0 +1,38 @@
+[
+  {
+    "id": "multi-file-search",
+    "_comment": "Same intent as functional.json but no 'use codeact' hint. Cross-references TODOs against import lines, which is awkward in one bash one-liner — codeact should win naturally.",
+    "prompt": "For each Python file in src/, list its TODO comments AND the modules it imports. Show file -> {todos: [...], imports: [...]} as JSON.",
+    "assertions": {
+      "codeact_invoked": true,
+      "output_contains": ["app.py", "TODO"]
+    }
+  },
+  {
+    "id": "batch-count",
+    "_comment": "Multi-dimensional aggregation per file (lines, TODOs, function defs) plus sort. Hard to do without a loop — natural fit for codeact.",
+    "prompt": "For each Python file under src/, count its total lines, number of TODO comments, and number of `def` function definitions. Show all three as a table sorted by total lines descending.",
+    "assertions": {
+      "codeact_invoked": true,
+      "output_contains": ["app.py", "lines"]
+    }
+  },
+  {
+    "id": "json-validate",
+    "_comment": "Validate + aggregate (top-level key count for valid ones). Multi-file scan with per-file analysis — codeact fits.",
+    "prompt": "Check every JSON file in config/ for valid syntax. For each valid file also report the number of top-level keys. For invalid files report the parse error. Combine into one summary table.",
+    "assertions": {
+      "codeact_invoked": true,
+      "output_contains": ["broken.json"]
+    }
+  },
+  {
+    "id": "single-file-read",
+    "_comment": "Negative test: trivial single-file read should NOT trigger codeact even when no hint is given.",
+    "prompt": "Read README.md and tell me what it says in one sentence.",
+    "assertions": {
+      "codeact_invoked": false,
+      "output_contains": ["README"]
+    }
+  }
+]

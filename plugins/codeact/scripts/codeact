@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# codeact — thin dispatcher to backend-specific codeact.py
+# Subcommands:
+#   --code '<python>'         Run sandboxed code
+#   --discover [--backend X]  Emit tools JSON manifest
+#   --instructions [--backend X]  Emit LLM-ready tool reference
+#   All other flags forwarded to backend codeact.py
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Extract --backend from args (if present), otherwise auto-detect
+BACKEND=""
+REMAINING_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --backend)
+      BACKEND="$2"
+      shift 2
+      ;;
+    --backend=*)
+      BACKEND="${1#--backend=}"
+      shift
+      ;;
+    *)
+      REMAINING_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$BACKEND" ]]; then
+  # Prefer the backend selected at install time over re-running detection,
+  # so runtime always matches the syntax baked into the instructions file.
+  if [[ -f "$PLUGIN_DIR/.codeact-backend" ]]; then
+    BACKEND=$(<"$PLUGIN_DIR/.codeact-backend")
+  else
+    BACKEND=$(bash "$SCRIPT_DIR/detect-backend.sh")
+  fi
+fi
+
+BACKEND_SCRIPT="$PLUGIN_DIR/skills/${BACKEND}-codeact/scripts/codeact.py"
+
+if [[ ! -f "$BACKEND_SCRIPT" ]]; then
+  echo "Error: Backend script not found: $BACKEND_SCRIPT" >&2
+  echo "Available backends:" >&2
+  ls "$PLUGIN_DIR/skills/" 2>/dev/null | grep -oP '(.+)-codeact' | sed 's/-codeact//' >&2
+  exit 1
+fi
+
+# Check if uv is available for auto-install
+HAS_UV=false
+if command -v uv >/dev/null 2>&1; then
+  HAS_UV=true
+fi
+
+# Build uv run prefix based on backend
+case "$BACKEND" in
+  monty)
+    if [[ "$HAS_UV" == "true" ]]; then
+      exec uv run --quiet --with pydantic-monty python3 "$BACKEND_SCRIPT" "${REMAINING_ARGS[@]}"
+    else
+      exec python3 "$BACKEND_SCRIPT" "${REMAINING_ARGS[@]}"
+    fi
+    ;;
+  hyperlight)
+    if [[ "$HAS_UV" == "true" ]]; then
+      PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
+      UV_EXTRA=()
+      if (( PY_MINOR > 13 )); then
+        UV_EXTRA=(--python 3.13)
+      fi
+      exec uv run --quiet "${UV_EXTRA[@]}" \
+        --with 'hyperlight-sandbox[wasm,python_guest]>=0.3.0' \
+        python3 "$BACKEND_SCRIPT" "${REMAINING_ARGS[@]}"
+    else
+      exec python3 "$BACKEND_SCRIPT" "${REMAINING_ARGS[@]}"
+    fi
+    ;;
+  *)
+    echo "Error: Unknown backend '$BACKEND'" >&2
+    exit 1
+    ;;
+esac
