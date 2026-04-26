@@ -414,7 +414,8 @@ def _sql(query="", db_path=":memory:"):
     cur = conn.execute(query)
     conn.commit()
     if cur.description:
-        return [dict(row) for row in cur.fetchall()]
+        rows = cur.fetchmany(10000)  # cap at 10K rows to prevent OOM
+        return [dict(row) for row in rows]
     return [{"rows_affected": cur.rowcount}]
 
 

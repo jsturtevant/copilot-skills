@@ -96,13 +96,16 @@ substitute() {
   content="${content//\{\{BACKEND\}\}/$BACKEND}"
   content="${content//\{\{CODEACT_DIR\}\}/$CODEACT_DIR}"
   content="${content//\{\{TOOL_LIST\}\}/$TOOL_LIST}"
-  # TOOL_REFERENCE and SYNTAX contain newlines so use python for safe substitution
-  echo "$content" | python3 -c "
-import sys
+  # Pass multiline values via env vars to avoid shell/Python quoting issues
+  TOOL_REF_B64=$(echo "$TOOL_REFERENCE" | base64 -w0)
+  SYNTAX_B64=$(echo "$SYNTAX" | base64 -w0)
+  LIMITS_B64=$(echo "$BACKEND_LIMITATIONS" | base64 -w0)
+  echo "$content" | TOOL_REF_B64="$TOOL_REF_B64" SYNTAX_B64="$SYNTAX_B64" LIMITS_B64="$LIMITS_B64" python3 -c "
+import sys, os, base64
 content = sys.stdin.read()
-ref = '''$TOOL_REFERENCE'''
-syntax = '''$SYNTAX'''
-limits = '''$BACKEND_LIMITATIONS'''
+ref = base64.b64decode(os.environ['TOOL_REF_B64']).decode()
+syntax = base64.b64decode(os.environ['SYNTAX_B64']).decode()
+limits = base64.b64decode(os.environ['LIMITS_B64']).decode()
 content = content.replace('{{TOOL_REFERENCE}}', ref)
 content = content.replace('{{SYNTAX}}', syntax)
 content = content.replace('{{BACKEND_LIMITATIONS}}', limits)

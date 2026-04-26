@@ -189,14 +189,21 @@ def run_copilot(
 def _extract_prompt_tokens(logs_before: set, log_glob: str) -> list[int]:
     """Find the new process log and extract prompt_tokens per turn."""
     import glob as _glob_mod
-    logs_after = set(_glob_mod.glob(log_glob))
-    new_logs = logs_after - logs_before
+    # Retry a few times in case the log file hasn't appeared yet
+    for _attempt in range(5):
+        logs_after = set(_glob_mod.glob(log_glob))
+        new_logs = logs_after - logs_before
+        if new_logs:
+            break
+        time.sleep(1)
     if not new_logs:
         return []
     # Pick the newest
     log_path = max(new_logs, key=os.path.getmtime)
     try:
-        content = Path(log_path).read_text(errors="replace")
+        # Cap read to 20MB to avoid OOM on large logs
+        with open(log_path, errors="replace") as f:
+            content = f.read(20 * 1024 * 1024)
     except OSError:
         return []
     # Extract prompt_tokens values (filter small values from metadata calls)
