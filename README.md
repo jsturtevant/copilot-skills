@@ -2,6 +2,24 @@
 
 Collapse multi-step tool chains into a single sandboxed Python execution. Instead of N individual tool calls (model → tool → model → tool …), the agent writes one Python program that chains all the tools together and runs it in a single turn.
 
+## Why CodeAct?
+
+Instead of N individual tool calls (model → tool → model → tool …), the agent writes one Python program that chains all the tools together and runs it in a single turn. Fewer turns means the conversation context — system prompt, tool definitions, prior messages — is replayed fewer times. With MCP servers loaded, each server's tool catalog adds to that context, so the savings compound.
+
+Each test runs the same prompt twice: once as a **baseline** (standard Copilot CLI, no plugin) and once with **codeact** (plugin loaded). Token counts are extracted from copilot process logs. Tests use a 30+ file Python project with handlers, services, middleware, configs, and tests.
+
+| Task | Turns | Input Tokens | Est. Cost Savings |
+|------|:-----:|:------------:|:-----------------:|
+| Test coverage + 4 MCP servers | 6 → 2 | 335K → 103K | **69%** |
+| Full project function index | 4 → 2 | 130K → 57K | **57%** |
+| Test coverage (no MCP) | 4 → 2 | 123K → 58K | **57%** |
+| Docstring coverage | 3 → 2 | 86K → 56K | **49%** |
+| MCP docs cross-ref + 4 servers | 3 → 3 | 167K → 88K | **49%** |
+
+Cost estimated at GPT-5.4 pricing ($2.50/M input, $15/M output). Run `uv run plugins/codeact/tests/run_tests.py perf --backend monty` to reproduce.
+
+For more on the pattern, see [CodeAct with Hyperlight](https://devblogs.microsoft.com/agent-framework/codeact-with-hyperlight/) from Microsoft.
+
 ## Before / After
 
 **Before (standard):** 8 tool calls, 12 API requests, ~1,250 output tokens
@@ -220,24 +238,6 @@ uv run plugins/codeact/tests/compare_results.py --out /tmp/diff.png
 
 Without `uv`, falls back to `python3 tests/compare_results.py ...` and prints
 the delta table only (plot needs `pip install matplotlib numpy`).
-
-## Why CodeAct?
-
-Instead of N individual tool calls (model → tool → model → tool …), the agent writes one Python program that chains all the tools together and runs it in a single turn. Fewer turns means the conversation context — system prompt, tool definitions, prior messages — is replayed fewer times. With MCP servers loaded, each server's tool catalog adds to that context, so the savings compound.
-
-Each test runs the same prompt twice: once as a **baseline** (standard Copilot CLI, no plugin) and once with **codeact** (plugin loaded). Token counts are extracted from copilot process logs. Tests use a 30+ file Python project with handlers, services, middleware, configs, and tests.
-
-| Task | Turns | Input Tokens | Est. Cost Savings |
-|------|:-----:|:------------:|:-----------------:|
-| Test coverage + 4 MCP servers | 6 → 2 | 335K → 103K | **69%** |
-| Full project function index | 4 → 2 | 130K → 57K | **57%** |
-| Test coverage (no MCP) | 4 → 2 | 123K → 58K | **57%** |
-| Docstring coverage | 3 → 2 | 86K → 56K | **49%** |
-| MCP docs cross-ref + 4 servers | 3 → 3 | 167K → 88K | **49%** |
-
-Cost estimated at GPT-5.4 pricing ($2.50/M input, $15/M output). Run `uv run plugins/codeact/tests/run_tests.py perf --backend monty` to reproduce.
-
-For more on the pattern, see [CodeAct with Hyperlight](https://devblogs.microsoft.com/agent-framework/codeact-with-hyperlight/) from Microsoft.
 
 ## License
 
