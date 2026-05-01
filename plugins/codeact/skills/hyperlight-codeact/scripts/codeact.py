@@ -808,6 +808,8 @@ def main() -> None:
     ap.add_argument("--stack-size", help="Sandbox stack (e.g. '35Mi').")
     ap.add_argument("--allowed-domains", nargs="*", default=[],
                     help="Domains reachable via sandbox http_get/http_post.")
+    ap.add_argument("--raw", action="store_true",
+                    help="On success, print stdout/stderr directly instead of JSON envelope.")
     ap.add_argument("--workspace",
                     help="Restrict file/sql tools to this directory tree.")
     args = ap.parse_args()
@@ -902,7 +904,18 @@ def main() -> None:
             "success": False,
         }
 
-    print(json.dumps(output, indent=2))
+    if args.raw and output["success"]:
+        sys.stdout.write(output["stdout"])
+        if output["stderr"]:
+            sys.stderr.write(output["stderr"])
+        sys.exit(0)
+    elif args.raw and not output["success"]:
+        if output["stdout"]:
+            sys.stdout.write(output["stdout"])
+        sys.stderr.write(output["stderr"])
+        sys.exit(1)
+    else:
+        print(json.dumps(output, indent=2))
 
 
 if __name__ == "__main__":
