@@ -1,90 +1,139 @@
 ---
-description: |
-  CodeAct via Hyperlight. Use when looping over many files (8+), cross-referencing
-  results from multiple sources, aggregating data across directories, or
-  chaining 5+ dependent tool calls. Collapses N round-trips into one sandboxed
-  Python run via scripts/codeact.py. NOT beneficial for <5 files or simple
-  grep-then-view — direct tool calls have less overhead at small scale.
-  ESPECIALLY valuable when MCP servers are loaded — fewer turns means the
-  MCP tool catalog context is replayed fewer times.
-  Run `scripts/codeact.py --discover` to see available sandbox tools.
-  Trigger: "codeact", "chain tools", "sandbox", "batch", "for each",
-  "hyperlight sandbox", "collapse tool calls", "run in sandbox",
-  "sandbox execution".
+description: 'Implement the CodeAct pattern with Hyperlight sandbox. Collapse multi-step tool chains into a single sandboxed Python execution that calls host tools via call_tool(). Tool names match Copilot CLI built-ins (view, create, edit, glob, grep, bash, sql, web_fetch, github_api) so the agent uses familiar names inside the sandbox. Use when a task requires chaining 3+ tool calls (data lookups, code search, computation, file manipulation, API calls). Trigger phrases: "codeact", "hyperlight sandbox", "chain tools together", "sandbox execution", "collapse tool calls", "run in sandbox".'
 name: hyperlight-codeact
 ---
 # Hyperlight CodeAct
 
-Collapse multi-step tool chains into a single sandboxed Python execution
-inside an isolated Hyperlight micro-VM (WebAssembly).
+Collapse multi-step tool chains into a single sandboxed Python execution.
+Instead of N individual tool calls (model -> tool -> model -> tool ...), write
+one Python program that chains `call_tool()` for each step inside an isolated
+Hyperlight micro-VM.
 
-## Syntax
+Tool names inside the sandbox **match Copilot CLI built-in tools**:
 
-Use `call_tool(name, **kwargs)` — built-in global, no import needed:
+| Copilot CLI tool     | Sandbox `call_tool()` | What it does               |
+|----------------------|-----------------------|----------------------------|
+| `view`               | `view`                | Read files / list dirs     |
+| `create`             | `create`              | Create new files           |
+| `edit`               | `edit`                | Surgical string replace    |
+| `glob`               | `glob`                | Find files by pattern      |
+| `grep` / `rg`        | `grep`                | Search file contents       |
+| `bash`               | `bash`                | Run shell commands         |
+| `sql`                | `sql`                 | SQLite queries             |
+| `web_fetch`          | `web_fetch`           | Fetch URLs                 |
+| `github-mcp-server-*`| `github_api`          | GitHub REST API via `gh`   |
+
+## Trust model
+
+The sandbox isolates model-generated **glue code** (the Python program), not
+the tool implementations. Tools run on the **host** with full process access.
+Sandboxed code can only reach the outside world through `call_tool()` bridges.
+
+**Sandboxed:** The Python program. Cannot touch host FS, network, or processes.
+**Host-side:** Tool callbacks. They have whatever access the process has.
+**Implication:** Only register tools appropriate for the trust level. Use
+`--workspace` to restrict file tools to a directory tree.
+
+## When to use CodeAct vs direct tool calls
+
+**Reach for CodeAct when:**
+- Chaining 3+ tool calls (search -> read -> transform -> write).
+- Intermediate results need computation (filtering, aggregation, formatting).
+- Reducing latency and token usage matters.
+
+**Stay with direct tool calls when:**
+- Only 1-2 tool calls needed.
+- Each call needs individual approval.
+- Tool outputs are large and need streaming.
+
+## Quick start
+
+```bash
+# 1. Discover tools (works without any packages installed)
+python3 scripts/codeact.py --discover
+
+# 2. Run code (uv auto-installs hyperlight-sandbox into an ephemeral env)
+uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --auto --workspace . --code '
+content = call_tool("view", path="README.md")
+print(f"README has {len(content.splitlines())} lines")
+'
+```
+
+## Workflow
+
+### Step 1 -- Discover tools
+
+```bash
+python3 scripts/codeact.py --discover           # JSON manifest
+python3 scripts/codeact.py --instructions        # LLM-ready reference
+python3 scripts/codeact.py --discover --output tools.json  # save manifest
+```
+
+### Step 2 -- Write sandboxed code
+
+Use `call_tool(name, **kwargs)` -- built-in global, no import needed.
+**All arguments must be keyword arguments.**
 
 ```python
+# Same names as Copilot CLI tools
 content = call_tool('view', path='src/main.py')
 files = call_tool('glob', pattern='**/*.py')
 hits = call_tool('grep', pattern='TODO', paths='src')
 result = call_tool('bash', command='git log --oneline -5')
 call_tool('edit', path='config.json', old_str='"debug": false', new_str='"debug": true')
+rows = call_tool('sql', query='SELECT * FROM users', db_path='app.db')
+data = call_tool('github_api', endpoint='/repos/owner/repo/issues')
 ```
 
-## Return types (critical — wrong assumptions cause retries)
-
-- `call_tool('glob', ...)` → **list of strings** like `["src/app.py", ...]`
-- `call_tool('view', ...)` → **string** (file content)
-- `call_tool('bash', ...)` → **dict** with `stdout`, `stderr`, `returncode`
-- `call_tool('mcp_call', ...)` → **string**
-
-## Pattern
+Chain by sequencing or nesting:
 
 ```python
-for f in call_tool('glob', pattern='src/**/*.py'):
-    try:
-        content = call_tool('view', path=f)
-    except Exception:
-        continue
-    # analyze content...
-    print(f"{f}: {result}")
+# Sequential: find files, read them, analyze
+for f in call_tool('glob', pattern='**/*.py', paths='src'):
+    content = call_tool('view', path=f)
+    if 'TODO' in content:
+        print(f"{f}: {content.count('TODO')} TODOs")
+
+# Nested: read a file found by glob
+content = call_tool('view', path=call_tool('glob', pattern='config.json')[0])
 ```
 
-## Rules
+### Step 3 -- Execute
 
-- **One bash call, one program.** Do not scout with separate tool calls first.
-- **Wrap file reads in try/except.**
-- `glob()` returns workspace-relative paths — pass directly to `view()`.
-- Brace expansion works: `call_tool('glob', pattern='src/{db,services}/**/*.py')`
-
-## Discover tools
+Use `uv run --with` to auto-install the dependency:
 
 ```bash
-python3 scripts/codeact.py --discover       # JSON manifest
-python3 scripts/codeact.py --instructions   # LLM-ready reference
+# Auto-discover + workspace scoping (recommended)
+uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --auto --workspace . --code '...'
+
+# With saved manifest
+uv run --with 'hyperlight-sandbox[wasm,python_guest]' python3 scripts/codeact.py --manifest tools.json --code-file script.py
 ```
 
-Tools are auto-detected based on what's installed on the host.
-
-## Execute
+If `hyperlight-sandbox` is already installed, plain `python3` works too:
 
 ```bash
-uv run --python 3.13 --with 'hyperlight-sandbox[wasm,python_guest]>=0.3.0' \
-  python3 scripts/codeact.py --auto --workspace . --code '...'
+python3 scripts/codeact.py --auto --workspace . --code '...'
 ```
 
-Output: `{"stdout": "...", "stderr": "...", "exit_code": 0, "success": true}`
+Output is always JSON: `{"stdout": "...", "stderr": "...", "exit_code": 0, "success": true}`
 
-## Trust model
+## Available scripts
 
-Sandboxed code can only reach the outside world through `call_tool()` bridges.
-Tools run on the host with full process access. Use `--workspace` to restrict
-file tools to a directory tree.
-
-## Prerequisites
-
-- Python 3.10–3.13 (Wasm backend has no wheels for 3.14+)
-- `uv` (recommended) or `pip install 'hyperlight-sandbox[wasm,python_guest]>=0.3.0'`
+### `scripts/codeact.py`
+Main executor. Key flags:
+- `--discover` / `--instructions` -- tool discovery
+- `--auto` -- auto-discover tools before running
+- `--workspace <dir>` -- restrict file tools to a directory tree
+- `--allowed-domains` -- allow sandbox-native HTTP
+- `--manifest <file>` -- load tools from JSON
 
 ## References
 
-- [references/tool-patterns.md](references/tool-patterns.md)
+- **Tool patterns and chaining examples**: See [references/tool-patterns.md](references/tool-patterns.md)
+
+## Prerequisites
+
+- Python 3.10+
+- `uv` (recommended — auto-installs `hyperlight-sandbox` with no side effects)
+- Or: `pip install 'hyperlight-sandbox[wasm,python_guest]'`

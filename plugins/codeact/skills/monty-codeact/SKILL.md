@@ -1,16 +1,5 @@
 ---
-description: |
-  CodeAct via Monty. Use when looping over many files (8+), cross-referencing
-  results from multiple sources, aggregating data across directories, or
-  chaining 5+ dependent tool calls. Collapses N round-trips into one sandboxed
-  Python run via scripts/codeact.py. NOT beneficial for <5 files or simple
-  grep-then-view — direct tool calls have less overhead at small scale.
-  ESPECIALLY valuable when MCP servers are loaded — fewer turns means the
-  MCP tool catalog context is replayed fewer times.
-  Run `scripts/codeact.py --discover` to see available sandbox tools.
-  Sub-microsecond startup.
-  Trigger: "codeact", "chain tools", "sandbox", "batch", "for each",
-  "monty codeact", "monty sandbox", "run in monty", "pydantic monty".
+description: 'Implement the CodeAct pattern with Pydantic Monty — a minimal, secure Python interpreter written in Rust. Collapse multi-step tool chains into a single sandboxed execution. Unlike hyperlight-codeact, tools are called as regular Python functions (no call_tool wrapper). Tool names match Copilot CLI built-ins (view, create, edit, glob, grep, bash, sql, web_fetch, github_api). Sub-microsecond startup. Use when chaining 3+ tool calls. Trigger phrases: "monty codeact", "monty sandbox", "chain tools", "codeact", "run in monty", "pydantic monty".'
 name: monty-codeact
 ---
 # Monty CodeAct
@@ -19,9 +8,88 @@ Collapse multi-step tool chains into a single sandboxed Python execution using
 [Pydantic Monty](https://github.com/pydantic/monty) — a minimal, secure Python
 interpreter written in Rust with sub-microsecond startup.
 
-## Syntax
+**Key difference from hyperlight-codeact:** tools are called as regular Python
+functions, not through `call_tool()`:
 
-Tools are called as regular Python functions with keyword arguments:
+```python
+# Monty — natural function calls
+content = view(path="README.md")
+files = glob(pattern="**/*.py")
+
+# Hyperlight — requires call_tool wrapper
+content = call_tool("view", path="README.md")
+```
+
+Tool names match Copilot CLI built-in tools:
+
+| Copilot CLI tool     | Monty function   | What it does               |
+|----------------------|------------------|----------------------------|
+| `view`               | `view()`         | Read files / list dirs     |
+| `create`             | `create()`       | Create new files           |
+| `edit`               | `edit()`         | Surgical string replace    |
+| `glob`               | `glob()`         | Find files by pattern      |
+| `grep` / `rg`        | `grep()`         | Search file contents       |
+| `bash`               | `bash()`         | Run shell commands         |
+| `sql`                | `sql()`          | SQLite queries             |
+| `web_fetch`          | `web_fetch()`    | Fetch URLs                 |
+| `github-mcp-server-*`| `github_api()`   | GitHub REST API via `gh`   |
+
+## Trust model
+
+Monty completely blocks direct access to the host filesystem, network, and
+environment. The only way sandboxed code can interact with the outside world
+is through registered external functions (the tools above).
+
+Tool callbacks run on the host with full process access. Use `--workspace`
+to restrict file tools to a directory tree.
+
+## Monty limitations
+
+Monty runs a subset of Python. It **cannot**:
+- Define classes (coming soon)
+- Use match statements (coming soon)
+- Import third-party libraries
+- Use most of the standard library (supported: json, re, datetime, sys, os, typing, asyncio)
+
+It **can**: loops, functions, f-strings, list/dict comprehensions, try/except,
+type hints, and calling external functions with keyword arguments.
+
+## When to use CodeAct vs direct tool calls
+
+**Reach for CodeAct when:** chaining 3+ tool calls, doing computation on
+intermediate results, or optimizing for latency/tokens.
+
+**Stay with direct tool calls when:** 1-2 calls, need per-call approval,
+or need full Python (classes, third-party libs).
+
+## Quick start
+
+```bash
+# Discovery works without any packages installed
+python3 scripts/codeact.py --discover
+
+# Execute code (uv auto-installs pydantic-monty into an ephemeral env)
+uv run --with pydantic-monty python3 scripts/codeact.py --auto --workspace . --code '
+files = glob(pattern="**/*.py", paths="src")
+print("Found " + str(len(files)) + " Python files")
+for f in files[:3]:
+    content = view(path=f)
+    print(f + ": " + str(len(content.split(chr(10)))) + " lines")
+'
+```
+
+## Workflow
+
+### Step 1 -- Discover tools
+
+```bash
+python3 scripts/codeact.py --discover           # JSON manifest
+python3 scripts/codeact.py --instructions        # LLM-ready reference
+```
+
+### Step 2 -- Write sandboxed code
+
+Call tools as regular Python functions with keyword arguments:
 
 ```python
 content = view(path="src/main.py")
@@ -29,9 +97,11 @@ files = glob(pattern="**/*.py")
 hits = grep(pattern="TODO", paths="src")
 result = bash(command="git log --oneline -5")
 edit(path="config.json", old_str='"debug": false', new_str='"debug": true')
+rows = sql(query="SELECT * FROM users", db_path="app.db")
+data = github_api(endpoint="/repos/owner/repo/issues")
 ```
 
-Chain by sequencing:
+Chain by sequencing or nesting:
 
 ```python
 for f in glob(pattern="**/*.py", paths="src"):
@@ -40,70 +110,46 @@ for f in glob(pattern="**/*.py", paths="src"):
         print(f + ": " + str(content.count("TODO")) + " TODOs")
 ```
 
-## Discover tools
+**Note:** Use `chr(10)` for newlines in split/join, string concatenation
+with `+` instead of f-strings with backslashes, and `import json` before
+using `json.loads()` / `json.dumps()` (Monty supports the json stdlib module
+but it must be imported explicitly).
 
-```bash
-python3 scripts/codeact.py --discover       # JSON manifest
-python3 scripts/codeact.py --instructions   # LLM-ready reference
-```
+### Step 3 -- Execute
 
-Tools are auto-detected based on what's installed on the host.
-
-## Execute
+Use `uv run --with pydantic-monty` to auto-install the dependency:
 
 ```bash
 uv run --with pydantic-monty python3 scripts/codeact.py --auto --workspace . --code '...'
+uv run --with pydantic-monty python3 scripts/codeact.py --manifest tools.json --code-file script.py
 ```
 
-Output: `{"stdout": "...", "stderr": "...", "return_value": null, "success": true}`
+If `pydantic-monty` is already installed, plain `python3` works too:
 
-## Monty limitations
-
-Monty runs a subset of Python. **Will error on:**
-- **Classes** — no `class` keyword at all
-- **Match statements** — no `match`/`case`
-- **f-string format specs** — `f"{x:<10}"`, `f"{x:>5}"`, `f"{x:.2f}"` all fail
-- **`str.format()`** — `"{:<10}".format(x)` fails
-- **`str.startswith()` with tuple** — use `or` instead
-- **Set comprehensions** — build with list + `in` checks
-- **Third-party imports** — only stdlib subset
-- **Most stdlib** — only: json, re, datetime, sys, os.environ (no os.path, no os.walk)
-- **Brace expansion in glob** — `glob(pattern="src/{db,services}/**/*.py")` is supported.
-
-**Sandbox tool return types** (getting these wrong causes retries):
-- `glob(pattern=...)` → **list of strings** like `["src/app.py", "src/utils.py"]`
-- `view(path=...)` → **string** (file content)
-- `mcp_call(server=..., tool=..., ...)` → **string**
-- `bash(command=...)` → **dict** with keys `stdout`, `stderr`, `returncode`
-
-**Key usage patterns:**
-- **Do NOT scout first.** `glob()` and `view()` are in the sandbox — discover
-  files inside your codeact program, not with separate tool calls before it.
-- **One program, one bash call.** Do not run multiple codeact invocations.
-  If the first one fails, fix the bug in the program, don't add a scouting step.
-- **Wrap file reads in try/except** so one bad file doesn't abort the run.
-- Use `for f in glob(pattern="**/*.py"):` to iterate files. No os.walk or os.path.
-
-**Output formatting workaround** (use instead of format specs):
-```python
-def pad(s, w):
-    s = str(s)
-    return s + " " * max(0, w - len(s))
+```bash
+python3 scripts/codeact.py --auto --workspace . --code '...'
 ```
 
-**Tips:** Use `chr(10)` for newlines. Use `import json` explicitly.
-Use string concatenation (`+`) or simple f-strings (`f"count: {n}"`).
+Output is JSON:
+```json
+{"stdout": "...", "stderr": "...", "return_value": null, "success": true}
+```
 
-## Trust model
+## Available scripts
 
-Sandboxed code can only reach the outside world through registered tool
-functions. Use `--workspace` to restrict file tools to a directory tree.
+### `scripts/codeact.py`
+Key flags:
+- `--discover` / `--instructions` -- tool discovery
+- `--auto` -- auto-discover tools before running
+- `--workspace <dir>` -- restrict file tools to a directory tree
+- `--max-steps N` / `--max-memory N` -- Monty execution limits
+
+## References
+
+- **Tool patterns**: See [references/tool-patterns.md](references/tool-patterns.md)
 
 ## Prerequisites
 
 - Python 3.10+
-- `uv` (recommended) or `pip install pydantic-monty`
-
-## References
-
-- [references/tool-patterns.md](references/tool-patterns.md)
+- `uv` (recommended — auto-installs `pydantic-monty` with no side effects)
+- Or: `pip install pydantic-monty` (~4.5MB, no other dependencies)
