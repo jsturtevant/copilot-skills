@@ -10,7 +10,7 @@ cross-references file sets, or needs ≥5 sequential tool calls.
 ### Invoke
 
 ```bash
-{{CODEACT_DIR}}/scripts/codeact --auto --workspace . --code '<python>'
+{{CODEACT_DIR}}/scripts/codeact --auto --raw --workspace . --code '<python>'
 ```
 
 ### Critical rules
@@ -25,10 +25,18 @@ cross-references file sets, or needs ≥5 sequential tool calls.
    - `mcp_call` → **string**
    - `bash` → **dict** with stdout/stderr/returncode
 3. **No `os.path`, no `os.walk`** — use `glob` to find files, `view` to read them.
-4. **Wrap file reads in try/except.** Print partial results as you go.
-5. **Use double quotes in Python code** to avoid shell quoting conflicts with
+4. **`glob` auto-excludes** `.venv`, `node_modules`, `__pycache__`, `.git`, `target`,
+   `dist`, `build`, and similar directories. If you need files from those dirs,
+   pass `exclude_dirs=[]` to disable filtering.
+5. **Wrap file reads in try/except.** Print partial results as you go.
+6. **Use double quotes in Python code** to avoid shell quoting conflicts with
    `--code '...'`. Write `"string"` not `'string'` inside codeact programs.
-6. Skip codeact for ≤5 files or single grep→view→done workflows.
+7. Skip codeact for ≤5 files or single grep→view→done workflows.
+8. **Keep output minimal.** Only print what the caller actually needs —
+   summaries, counts, and key findings. Do NOT dump raw file contents or
+   hundreds of unfiltered lines. If a list could be long, truncate or
+   aggregate inside the program. The output must fit comfortably in a
+   single tool response (~5 KB) to avoid extra read round-trips.
 
 {{SYNTAX}}
 

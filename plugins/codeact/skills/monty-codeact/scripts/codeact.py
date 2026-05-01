@@ -96,11 +96,16 @@ def discover_tools() -> list[dict[str, Any]]:
     tools.append({
         "name": "glob",
         "cli_equivalent": "glob",
-        "description": "Find files matching a glob pattern (max 200).",
+        "description": "Find files matching a glob pattern. Auto-excludes "
+                       ".venv, node_modules, __pycache__, .git, target, dist, "
+                       "build. Pass exclude_dirs=[] to include everything.",
         "parameters": {
             "pattern": {"type": "string", "required": True,
                         "description": "Glob pattern, e.g. '**/*.py'."},
             "paths": {"type": "string", "required": False, "default": "."},
+            "exclude_dirs": {"type": "array", "required": False,
+                             "description": "Directories to exclude. Defaults to "
+                             "common virtual/build dirs. Pass [] to disable."},
         },
         "implementation": {"type": "builtin"},
     })
@@ -374,8 +379,26 @@ def _edit(path="", old_str="", new_str=""):
     return f"Edited {path}"
 
 
-def _glob(pattern="**/*", paths="."):
+_DEFAULT_EXCLUDE_DIRS = {
+    ".venv", "venv", "node_modules", "__pycache__", ".git",
+    ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "target", "dist", "build", ".next", ".nuxt",
+}
+
+def _glob(pattern="**/*", paths=".", exclude_dirs=None):
     base = _check_workspace(Path(paths))
+    # Directories to skip unless user explicitly globs into them
+    skip = _DEFAULT_EXCLUDE_DIRS if exclude_dirs is None else set(exclude_dirs)
+
+    def _should_include(p: Path) -> bool:
+        if not p.is_file():
+            return False
+        # Skip files inside excluded directories
+        for part in p.parts:
+            if part in skip:
+                return False
+        return True
+
     # Support brace expansion: {a,b} → run multiple globs and merge
     if "{" in pattern and "}" in pattern:
         prefix = pattern[:pattern.index("{")]
@@ -386,10 +409,18 @@ def _glob(pattern="**/*", paths="."):
         expanded = [prefix + alt + suffix for alt in alternatives]
         all_matches: list[str] = []
         for p in expanded:
-            all_matches.extend(str(m) for m in base.glob(p) if m.is_file())
-        matches = sorted(set(all_matches))[:200]
+            all_matches.extend(str(m) for m in base.glob(p) if _should_include(m))
+        matches = sorted(set(all_matches))
     else:
-        matches = sorted(str(p) for p in base.glob(pattern) if p.is_file())[:200]
+        matches = sorted(str(p) for p in base.glob(pattern) if _should_include(p))
+
+    # Safety cap at 10000 with a warning if truncated
+    cap = 10000
+    if len(matches) > cap:
+        print(f"⚠ glob matched {len(matches)} files, returning first {cap}. "
+              f"Use a more specific pattern.", file=sys.stderr)
+        matches = matches[:cap]
+
     # Return workspace-relative paths so sandbox code doesn't need to strip prefixes
     if _WORKSPACE_ROOT is not None:
         root = str(_WORKSPACE_ROOT) + "/"
@@ -717,6 +748,8 @@ def main() -> None:
                     help="Max execution steps (Monty limit).")
     ap.add_argument("--max-memory", type=int, default=None,
                     help="Max memory in bytes (Monty limit).")
+    ap.add_argument("--raw", action="store_true",
+                    help="On success, print stdout/stderr directly instead of JSON envelope.")
     args = ap.parse_args()
 
     # ---- discovery / instructions ----
@@ -823,7 +856,18 @@ def main() -> None:
             "success": False,
         }
 
-    print(json.dumps(output, indent=2, default=str))
+    if args.raw and output["success"]:
+        sys.stdout.write(output["stdout"])
+        if output["stderr"]:
+            sys.stderr.write(output["stderr"])
+        sys.exit(0)
+    elif args.raw and not output["success"]:
+        if output["stdout"]:
+            sys.stdout.write(output["stdout"])
+        sys.stderr.write(output["stderr"])
+        sys.exit(1)
+    else:
+        print(json.dumps(output, indent=2, default=str))
 
 
 if __name__ == "__main__":
